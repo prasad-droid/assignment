@@ -76,7 +76,7 @@ app.put("/api/lead/:id", (req, res) => {
     });
   }
 
-  const { name, company, mobile, email, category, lead_status, followup } =
+  const { name, company, mobile, email, category, lead_status, follow_up_date } =
     req.body;
 
   const query = `UPDATE leads SET Name = ?, Company = ?, Mobile = ?, Email = ?, Category = ?, Lead_status = ?, Follow_up_date = ? WHERE id = ?`;
@@ -88,7 +88,7 @@ app.put("/api/lead/:id", (req, res) => {
     email,
     category,
     lead_status,
-    followup,
+    follow_up_date,
     lead_id,
   ];
 
@@ -114,7 +114,7 @@ app.delete("/api/lead/:id", (req, res) => {
   connection.query(query, lead_id, (err, result) => {
     if (err) {
       return res.status(500).json({
-        error: "Failed to delete leads",
+        error: "Failed to delete leads "+err,
       });
     }
     res.json({
@@ -141,7 +141,10 @@ app.get("/api/dashboard", async (req, res) => {
       todaysFollowups,
       convertedLeads,
       statusStats,
+      monthlyLeads,
+      yearlyLeads,
     ] = await Promise.all([
+      
       // Total Leads
       query(`SELECT * FROM leads ORDER BY id DESC`),
 
@@ -166,6 +169,24 @@ app.get("/api/dashboard", async (req, res) => {
       // Lead Status Statistics
       query(
         `SELECT lead_status, COUNT(*) AS count FROM leads GROUP BY lead_status`,
+      ),
+
+      // Leads grouped by month and year
+      query(
+        `SELECT YEAR(created_at) AS year, MONTH(created_at) AS month, COUNT(*) AS count
+         FROM leads
+         WHERE created_at IS NOT NULL
+         GROUP BY YEAR(created_at), MONTH(created_at)
+         ORDER BY year DESC, month DESC`,
+      ),
+
+      // Leads grouped by year
+      query(
+        `SELECT YEAR(created_at) AS year, COUNT(*) AS count
+         FROM leads
+         WHERE created_at IS NOT NULL
+         GROUP BY YEAR(created_at)
+         ORDER BY year DESC`,
       ),
     ]);
 
@@ -193,6 +214,8 @@ app.get("/api/dashboard", async (req, res) => {
 
       statistics: {
         status: statusStats,
+        monthly: monthlyLeads,
+        yearly: yearlyLeads,
       },
     });
   } catch (error) {
