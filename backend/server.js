@@ -36,7 +36,11 @@ app.get("/api/test", async (req, res) => {
     res.send("Database Connected and API is Working");
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: "Database connection failed" });
+    res.status(500).json({
+      error: "Database connection failed",
+      code: error.code,
+      detail: error.message,
+    });
   }
 });
 
