@@ -1,28 +1,28 @@
 const express = require("express");
 const cors = require("cors");
-const mysql = require("mysql");
+const mysql = require("mysql2");
 require("dotenv").config();
 
 const app = express();
 const port = process.env.PORT || 3000;
-app.use(cors());
 app.use(express.json());
 
-// DB Connection
-const connection = mysql.createConnection({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASS,
-  database: process.env.DB_NAME,
-});
+app.use(cors({
+  origin: process.env.FRONTEND_URL,
+}));
 
-connection.connect((error) => {
-  if (error) {
-    console.error("Database connection failed:", error.message);
-    process.exit(1);
-  }
-  console.log("Database Connected");
-});
+// DB Connection
+const db = mysql
+  .createPool({
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASS,
+    database: process.env.DB_NAME,
+    waitForConnections: true,
+    connectionLimit: 5,
+    queueLimit: 0,
+  })
+  .promise();
 
 // Inital url
 app.get("/", (req, res) => {
@@ -30,52 +30,62 @@ app.get("/", (req, res) => {
 });
 
 // health check
-app.get("/api/test", (req, res) => {
-  res.send("Database Connected and API is Working");
+app.get("/api/test", async (req, res) => {
+  try {
+    await db.query("SELECT 1");
+    res.send("Database Connected and API is Working");
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Database connection failed" });
+  }
 });
 
 // GET Leads
-app.get("/api/leads", (req, res) => {
-  connection.query("SELECT * FROM `leads`", (error, results) => {
-    if (error) {
-      return res.status(500).json({ error: "Failed to fetch leads" });
-    }
+app.get("/api/leads", async (req, res) => {
+  try {
+    const [results] = await db.query("SELECT * FROM `leads`");
     res.json(results);
-  });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Failed to fetch leads" });
+  }
 });
 
 // POST Lead
-app.post("/api/lead", (req, res) => {
-  if (!req.body) {
+app.post("/api/lead", async (req, res) => {
+  const { name, company, mobile, email, category, lead_status, followup } =
+    req.body || {};
+
+  if (!name || !mobile) {
     return res.status(400).json({
       error: "Request Body is required",
     });
   }
-  const { name, company, mobile, email, category, lead_status, followup } =
-    req.body;
 
-  let query = `INSERT INTO leads( Name, Company, Mobile, Email, Category, Lead_status, Follow_up_date) VALUES ('${name}','${company}','${mobile}','${email}','${category}','${lead_status}','${followup}')`;
+  const query = `INSERT INTO leads( Name, Company, Mobile, Email, Category, Lead_status, Follow_up_date) VALUES (?, ?, ?, ?, ?, ?, ?)`;
 
-  connection.query(query, (err, results) => {
-    if (err) {
-      return res.status(500).json({ error: "Failed To add Lead(s) " + err });
-    }
+  const values = [name, company, mobile, email, category, lead_status, followup];
+
+  try {
+    await db.query(query, values);
     res.json({
       message: "Lead Added Successfully",
     });
-  });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Failed To add Lead(s)" });
+  }
 });
 
 // UPDATE Lead
-app.put("/api/lead/:id", (req, res) => {
-  const lead_id = req.params.id;
-
+app.put("/api/lead/:id", async (req, res) => {
   if (!req.body) {
     return res.status(400).json({
       error: "Request Body is required",
     });
   }
 
+  const lead_id = req.params.id;
   const { name, company, mobile, email, category, lead_status, follow_up_date } =
     req.body;
 
@@ -92,48 +102,39 @@ app.put("/api/lead/:id", (req, res) => {
     lead_id,
   ];
 
-  connection.query(query, values, (err, results) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({
-        error: "Failed to update lead",
-      });
-    }
-
+  try {
+    await db.query(query, values);
     res.json({
       message: "Lead updated successfully",
-      result: results,
     });
-  });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      error: "Failed to update lead",
+    });
+  }
 });
 
 // DELETE Lead
-app.delete("/api/lead/:id", (req, res) => {
-  let lead_id = req.params.id;
-  let query = `DELETE from leads WHERE id = ?`;
-  connection.query(query, lead_id, (err, result) => {
-    if (err) {
-      return res.status(500).json({
-        error: "Failed to delete leads "+err,
-      });
-    }
+app.delete("/api/lead/:id", async (req, res) => {
+  const lead_id = req.params.id;
+
+  try {
+    await db.query(`DELETE FROM leads WHERE id = ?`, [lead_id]);
     res.json({
       message: "Lead Deleted Successfully",
     });
-  });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      error: "Failed to delete leads",
+    });
+  }
 });
 
+// Dashboard stats
 app.get("/api/dashboard", async (req, res) => {
   try {
-    const query = (sql, params = []) => {
-      return new Promise((resolve, reject) => {
-        connection.query(sql, params, (err, result) => {
-          if (err) reject(err);
-          else resolve(result);
-        });
-      });
-    };
-
     const [
       totalLeads,
       newLeads,
@@ -143,52 +144,51 @@ app.get("/api/dashboard", async (req, res) => {
       statusStats,
       monthlyLeads,
       yearlyLeads,
-    ] = await Promise.all([
-      
-      // Total Leads
-      query(`SELECT * FROM leads ORDER BY id DESC`),
+    ] = (
+      await Promise.all([
+        // Total Leads
+        db.query(`SELECT * FROM leads ORDER BY id DESC`),
 
-      // New Leads
-      query(`SELECT * FROM leads WHERE lead_status = 'new' ORDER BY id DESC `),
+        // New Leads
+        db.query(`SELECT * FROM leads WHERE lead_status = 'new' ORDER BY id DESC `),
 
-      // All Follow-ups
-      query(
-        ` SELECT * FROM leads WHERE follow_up_date IS NOT NULL ORDER BY follow_up_date DESC`,
-      ),
+        // All Follow-ups
+        db.query(
+          ` SELECT * FROM leads WHERE follow_up_date IS NOT NULL ORDER BY follow_up_date DESC`,
+        ),
 
-      // Today's Follow-ups
-      query(
-        `SELECT * FROM leads WHERE DATE(follow_up_date) = CURDATE() ORDER BY follow_up_date ASC`,
-      ),
+        // Today's Follow-ups
+        db.query(
+          `SELECT * FROM leads WHERE DATE(follow_up_date) = CURDATE() ORDER BY follow_up_date ASC`,
+        ),
 
-      // Converted Leads
-      query(
-        `SELECT * FROM leads WHERE lead_status = 'converted' ORDER BY id DESC`,
-      ),
+        // Converted Leads
+        db.query(`SELECT * FROM leads WHERE lead_status = 'converted' ORDER BY id DESC`),
 
-      // Lead Status Statistics
-      query(
-        `SELECT lead_status, COUNT(*) AS count FROM leads GROUP BY lead_status`,
-      ),
+        // Lead Status Statistics
+        db.query(
+          `SELECT lead_status, COUNT(*) AS count FROM leads GROUP BY lead_status`,
+        ),
 
-      // Leads grouped by month and year
-      query(
-        `SELECT YEAR(created_at) AS year, MONTH(created_at) AS month, COUNT(*) AS count
-         FROM leads
-         WHERE created_at IS NOT NULL
-         GROUP BY YEAR(created_at), MONTH(created_at)
-         ORDER BY year DESC, month DESC`,
-      ),
+        // Leads grouped by month and year
+        db.query(
+          `SELECT YEAR(created_at) AS year, MONTH(created_at) AS month, COUNT(*) AS count
+           FROM leads
+           WHERE created_at IS NOT NULL
+           GROUP BY YEAR(created_at), MONTH(created_at)
+           ORDER BY year DESC, month DESC`,
+        ),
 
-      // Leads grouped by year
-      query(
-        `SELECT YEAR(created_at) AS year, COUNT(*) AS count
-         FROM leads
-         WHERE created_at IS NOT NULL
-         GROUP BY YEAR(created_at)
-         ORDER BY year DESC`,
-      ),
-    ]);
+        // Leads grouped by year
+        db.query(
+          `SELECT YEAR(created_at) AS year, COUNT(*) AS count
+           FROM leads
+           WHERE created_at IS NOT NULL
+           GROUP BY YEAR(created_at)
+           ORDER BY year DESC`,
+        ),
+      ])
+    ).map(([rows]) => rows);
 
     res.json({
       success: true,
@@ -223,11 +223,15 @@ app.get("/api/dashboard", async (req, res) => {
 
     res.status(500).json({
       success: false,
-      error: "Error fetching dashboard data"+error,
+      error: "Error fetching dashboard data",
     });
   }
 });
 
-app.listen(port, () => {
-  console.log(`app listening on port ${port}`);
-});
+if (require.main === module) {
+  app.listen(port, () => {
+    console.log(`app listening on port ${port}`);
+  });
+}
+
+module.exports = app;
