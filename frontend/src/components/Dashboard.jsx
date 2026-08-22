@@ -4,7 +4,7 @@ import { Chart, registerables } from "chart.js";
 Chart.register(...registerables);
 
 export default function Dashboard() {
-  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://assignment-self-eta.vercel.app";
   const lineChartRef = useRef(null);
   const pieChartRef = useRef(null);
 

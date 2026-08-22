@@ -4,7 +4,7 @@ import Modal from "./Modal";
 export default function LeadsPage() {
   const [leads, setLeads] = useState([]);
   const [leadToEdit, setLeadToEdit] = useState(null);
-  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://assignment-self-eta.vercel.app";
 
   async function fetchLeads() {
     let response = await fetch(`${API_BASE_URL}/api/leads`);

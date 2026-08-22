@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 export default function Modal({ lead, onClose, onSaved }) {
-  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://assignment-self-eta.vercel.app";
   const [form, setForm] = useState({
     name: lead.name || "",
     company: lead.company || "",
