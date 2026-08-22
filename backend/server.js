@@ -8,7 +8,7 @@ const port = process.env.PORT || 3000;
 app.use(express.json());
 
 app.use(cors({
-  origin: process.env.FRONTEND_URL,
+  origin: "https://lightgoldenrodyellow-dogfish-361262.hostingersite.com",
 }));
 
 // DB Connection
